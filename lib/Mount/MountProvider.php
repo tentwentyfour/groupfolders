@@ -150,6 +150,7 @@ class MountProvider implements IMountProvider {
 	}
 
 	public function getMount($id, $mountPoint, $permissions, $quota, $cacheEntry = null, IStorageFactory $loader = null, bool $acl = false, IUser $user = null): ?IMountPoint {
+		error_log($mountPoint);
 		if (!$cacheEntry) {
 			// trigger folder creation
 			$folder = $this->getFolder($id);

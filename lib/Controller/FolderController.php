@@ -78,6 +78,8 @@ class FolderController extends OCSController {
 	 * @return DataResponse
 	 */
 	public function addFolder($mountpoint) {
+		error_log('FolderController->addFolder');
+
 		$id = $this->manager->createFolder($mountpoint);
 		return new DataResponse(['id' => $id]);
 	}
@@ -135,15 +137,132 @@ class FolderController extends OCSController {
 		$this->manager->setGroupPermissions($id, $group, $permissions);
 		return new DataResponse(['success' => true]);
 	}
+
 	/**
 	 * @param int $id
-	 * @param string $group
+	 * @param string $mappingType
+	 * @param string $mappingId
 	 * @param bool $manageAcl
 	 * @return DataResponse
 	 */
 	public function setManageACL($id, $mappingType, $mappingId, $manageAcl) {
 		$this->manager->setManageACL($id, $mappingType, $mappingId, $manageAcl);
 		return new DataResponse(['success' => true]);
+	}
+
+	/**
+	 * @param int $id
+	 * @param string $mappingType
+	 * @param string $mappingId
+	 * @param string $path
+	 * @param string $permission
+	 * @return DataResponse
+	 */
+	public function setACLPermissions($id, $mappingType, $mappingId, $path, $permission) {
+	// public function setACLPermissions($folderId, $type, $mappingId, $path, $permissions) {
+		error_log('BRUHsetACLPermissions');
+		// $this->manager->setACLPermissions($id, $mappingType, $mappingId, $path, $permission);
+		error_log($id);
+		error_log($mappingType);
+		error_log($mappingId);
+		error_log($path);
+		error_log($permission);
+
+		// $folder = $this->getFolder($id, $this->rootFolder->getMountPoint()->getNumericStorageId());
+		$folder = $this->manager->getFolder((int)$id, $this->getRootFolderStorageId());
+
+		error_log('BRUH');
+		$permissions = $permission;
+
+		error_log(print_r($folder, TRUE));
+		$mappingType = $mappingType === 'user' ? 'user' : 'group';
+
+		if ($folder) {
+			if (!$folder['acl']) {
+				// $output->writeln('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
+				error_log('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
+				// return -2;
+				return new DataResponse(false);
+			} else if (!$path) {
+				error_log('<error><path> argument has to be set when not using --enable or --disable</error>');
+				// return -3;
+				return new DataResponse(false);
+			} else if (!$permissions) {
+				error_log('<error><permissions> argument has to be set when not using --enable or --disable</error>');
+				// return -3;
+				return new DataResponse(false);
+			} else {
+				$path = trim($path, '/');
+				error_log($path);
+				$permissionStrings = $permissions;
+
+				error_log(print_r($permissionStrings, TRUE));
+				error_log(print_r($folder['permissions'], TRUE));
+
+				$mount = $this->mountProvider->getMount(
+					$folder['id'],
+					$folder['mount_point'],
+					$folder['permissions'],
+					$folder['quota'],
+					$folder['rootCacheEntry'],
+					null,
+					$folder['acl']
+				);
+
+				error_log(isset($mount));
+				$id = $mount->getStorage()->getCache()->getId($path);
+				error_log($id);
+
+				if ($id === -1) {
+					$output->writeln('<error>Path not found in folder: ' . $path . '</error>');
+					// return -1;
+					return new DataResponse(false);
+				}
+
+				if ($permissionStrings === ['clear']) {
+					$this->ruleManager->deleteRule(new Rule(
+						new UserMapping($mappingType, $mappingId),
+						$id,
+						0,
+						0
+					));
+				} else {
+					error_log('here');
+
+					foreach ($permissionStrings as $permission) {
+						if ($permission[0] !== '+' && $permission[0] !== '-') {
+							$output->writeln('<error>incorrect format for permissions "' . $permission . '"</error>');
+							// return -3;
+							return new DataResponse(false);
+						}
+						$name = substr($permission, 1);
+						if (!isset(self::PERMISSIONS_MAP[$name])) {
+							$output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
+							// return -3;
+							return new DataResponse(false);
+						}
+					}
+					error_log('still here');
+
+					[$mask, $permissions] = $this->parsePermissions($permissionStrings);
+
+					$this->ruleManager->saveRule(new Rule(
+						new UserMapping($mappingType, $mappingId),
+						$id,
+						$mask,
+						$permissions
+					));
+					error_log('but not here');
+				}
+			}
+		} else {
+			$output->writeln('<error>Folder not found: ' . $id . '</error>');
+			return -1;
+			return new DataResponse(false);
+		}
+		// return 0;
+
+		return new DataResponse(true);
 	}
 
 	/**
