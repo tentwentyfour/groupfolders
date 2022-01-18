@@ -115,15 +115,16 @@ class Rule implements XmlSerializable, XmlDeserializable, \JsonSerializable {
 		return [$mask, $result];
 	}
 
-	public static function validatePermissions(array $permissions): void {
+	public static function validatePermissions(array $permissions): bool {
 		foreach ($permissions as $permission) {
 			if ($permission[0] !== '+' && $permission[0] !== '-') {
-				throw new InvalidPermissionFormatException();
+				return false;
 			}
 			if (!isset(self::PERMISSIONS_MAP[substr($permission, 1)])) {
-				throw new NoSuchPermissionException();
+				return false;
 			}
 		}
+		return true;
 	}
 
 	public function xmlSerialize(Writer $writer) {

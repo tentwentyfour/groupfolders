@@ -58,7 +58,6 @@ class FolderManager {
 		IDBConnection $connection,
 		IGroupManager $groupManager = null,
 		IMimeTypeLoader $mimeTypeLoader = null,
-		MountProvider $mountProvider,
 		RuleManager $ruleManager
 	) {
 		$this->connection = $connection;
@@ -73,7 +72,6 @@ class FolderManager {
 		$this->groupManager = $groupManager;
 		$this->mimeTypeLoader = $mimeTypeLoader;
 		$this->ruleManager = $ruleManager;
-		$this->mountProvider = $mountProvider;
 	}
 
 	/**
@@ -523,6 +521,7 @@ class FolderManager {
 	public function setFolderPermissions(
 		int $folderId,
 		int $rootFolderId,
+		MountProvider $mountProvider,
 		string $path,
 		string $mappingType,
 		string $mappingId,
@@ -530,17 +529,29 @@ class FolderManager {
 	) {
 		$folder = $this->getFolder($folderId, $rootFolderId);
 		if (!$folder) {
-			throw new NoSuchFolderException();
+			return [
+				'success' => false,
+				'error' => sprintf(
+					'Folder not found: %d',
+					$folderId
+				)
+			];
 		}
 
 		if (!$folder['acl']) {
-			throw new AdvancedPermissionsNotEnabledException();
+			return [
+				'success' => false,
+				'error' => sprintf(
+					'Advanced permissions not enabled for folder: %d',
+					$folderId
+				),
+			];
 		}
 
 		$path = trim($path, '/');
 		// Note: getFolder returns neither permissions nor rootCacheEntry
 		// for folder entries!
-		$mount = $this->mountProvider->getMount(
+		$mount = $mountProvider->getMount(
 			$folder['id'],
 			$folder['mount_point'],
 			$folder['permissions'] ?? null,		// getFolder does not return this either
@@ -557,7 +568,10 @@ class FolderManager {
 
 		$id = $mount->getStorage()->getCache()->getId($path);
 		if ($id === -1) {
-			throw new PathNotFoundException();
+			return [
+				'success' => false,
+				'error' => 'Path not found in folder: ' . $path,
+			];
 		}
 
 		$mappingType = $mappingType === 'user' ? 'user' : 'group';
@@ -569,9 +583,17 @@ class FolderManager {
 				0
 			));
 		} else {
-			Rule::validatePermissions($permissions);
-			[$mask, $parsedPermissions] = Rule::parsePermissions($permissions);
+			if (!Rule::validatePermissions($permissions)) {
+				return [
+					'success' => false,
+					'error' => sprintf(
+						'Incorrect format for permissions "%s"',
+						$permissions
+					),
+				];
+			}
 
+			[$mask, $parsedPermissions] = Rule::parsePermissions($permissions);
 			$this->ruleManager->saveRule(new Rule(
 				new UserMapping($mappingType, $mappingId),
 				$id,
@@ -580,7 +602,13 @@ class FolderManager {
 			));
 		}
 
-		return true;
+		return [
+			'success' => true,
+			'message' => sprintf(
+				'ACL applied successfully to folder %d',
+				$id
+			),
+		];
 	}
 
 	public function removeFolder($folderId): void {

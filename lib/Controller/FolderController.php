@@ -174,57 +174,19 @@ class FolderController extends OCSController {
 					$this->userId,
 					$id
 				),
-				'code' => 404,
 			]);
 		}
 
-		try {
-			$this->manager->setFolderPermissions(
-				$id,
-				$this->getRootFolderStorageId(),
-				$path,
-				$mappingType,
-				$mappingId,
-				$permissions
-			);
-			return new DataResponse([
-				'success' => true,
-				'message' => sprintf(
-					'ACL applied successfully to folder %d',
-					$id
-				),
-			]);
-		} catch (NoSuchFolderException $e) {
-			return new DataResponse([
-				'success' => false,
-				'error' => sprintf(
-					'Folder not found: %d',
-					$id
-				),
-				'code' => 404,
-			]);
-		} catch (AdvancedPermissionsNotEnabledException $e) {
-			return new DataResponse([
-				'success' => false,
-				'error' => sprintf(
-					'Advanced permissions not enabled for folder: %d',
-					$id
-				),
-			]);
-		} catch (PathNotFoundException $e) {
-			return new DataResponse([
-				'success' => false,
-				'error' => 'Path not found in folder: ' . $path,
-			]);
-		} catch (InvalidPermissionFormatException $e) {
-			return new DataResponse([
-				'success' => false,
-				'error' => sprintf(
-					'Incorrect format for permissions "%s"',
-					$permissions
-				),
-			]);
-		}
+		$result = $this->manager->setFolderPermissions(
+			$id,
+			$this->getRootFolderStorageId(),
+			$this->mountProvider,
+			$path,
+			$mappingType,
+			$mappingId,
+			$permissions
+		);
+		return new DataResponse($result);
 	}
 
 	/**
