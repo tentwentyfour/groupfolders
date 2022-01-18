@@ -23,6 +23,7 @@ namespace OCA\GroupFolders\ACL;
 
 use OCA\GroupFolders\ACL\UserMapping\IUserMapping;
 use OCA\GroupFolders\ACL\UserMapping\UserMapping;
+use OCP\Constants;
 use Sabre\Xml\Reader;
 use Sabre\Xml\Writer;
 use Sabre\Xml\XmlDeserializable;
@@ -35,6 +36,13 @@ class Rule implements XmlSerializable, XmlDeserializable, \JsonSerializable {
 	const MAPPING_TYPE = '{http://nextcloud.org/ns}acl-mapping-type';
 	const MAPPING_ID = '{http://nextcloud.org/ns}acl-mapping-id';
 	const MAPPING_DISPLAY_NAME = '{http://nextcloud.org/ns}acl-mapping-display-name';
+	const PERMISSIONS_MAP = [
+		'read' => Constants::PERMISSION_READ,
+		'write' => Constants::PERMISSION_UPDATE,
+		'create' => Constants::PERMISSION_CREATE,
+		'delete' => Constants::PERMISSION_DELETE,
+		'share' => Constants::PERMISSION_SHARE,
+	];
 
 	private $userMapping;
 	private $fileId;
@@ -78,6 +86,31 @@ class Rule implements XmlSerializable, XmlDeserializable, \JsonSerializable {
 		// a bitmask that has all allow bits set to 1 and all inherit and deny bits to 0
 		$allowMask = $this->mask & $this->permissions;
 		return $permissions | $allowMask;
+	}
+
+	public static function formatRulePermissions(int $mask, int $permissions): string {
+		$result = [];
+		foreach (self::PERMISSIONS_MAP as $name => $value) {
+			if (($mask & $value) === $value) {
+				$type = ($permissions & $value) === $value ? '+' : '-';
+				$result[] = $type . $name;
+			}
+		}
+		return implode(', ', $result);
+	}
+
+	public static function parsePermissions(array $permissions): array {
+		$mask = 0;
+		$result = 0;
+
+		foreach ($permissions as $permission) {
+			$permissionValue = self::PERMISSIONS_MAP[substr($permission, 1)];
+			$mask |= $permissionValue;
+			if ($permission[0] === '+') {
+				$result |= $permissionValue;
+			}
+		}
+		return [$mask, $result];
 	}
 
 	public function xmlSerialize(Writer $writer) {

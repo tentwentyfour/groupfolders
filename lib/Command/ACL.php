@@ -38,14 +38,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class ACL extends Base {
-	const PERMISSIONS_MAP = [
-		'read' => Constants::PERMISSION_READ,
-		'write' => Constants::PERMISSION_UPDATE,
-		'create' => Constants::PERMISSION_CREATE,
-		'delete' => Constants::PERMISSION_DELETE,
-		'share' => Constants::PERMISSION_SHARE,
-	];
-
 	private $folderManager;
 	private $rootFolder;
 	private $ruleManager;
@@ -110,7 +102,7 @@ class ACL extends Base {
 					$path = $input->getArgument('path');
 					$aclManager = $this->aclManagerFactory->getACLManager($user);
 					$permissions = $aclManager->getACLPermissionsForPath($jailPath . rtrim('/' . $path, '/'));
-					$permissionString = $this->formatRulePermissions(Constants::PERMISSION_ALL, $permissions);
+					$permissionString = Rule::formatRulePermissions(Constants::PERMISSION_ALL, $permissions);
 					$output->writeln($permissionString);
 					return;
 				} else {
@@ -191,13 +183,13 @@ class ACL extends Base {
 							return -3;
 						}
 						$name = substr($permission, 1);
-						if (!isset(self::PERMISSIONS_MAP[$name])) {
+						if (!isset(Rule::PERMISSIONS_MAP[$name])) {
 							$output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
 							return -3;
 						}
 					}
 
-					[$mask, $permissions] = $this->parsePermissions($permissionStrings);
+					[$mask, $permissions] = Rule::parsePermissions($permissionStrings);
 
 					$this->ruleManager->saveRule(new Rule(
 						new UserMapping($mappingType, $mappingId),
@@ -244,7 +236,7 @@ class ACL extends Base {
 						return $rule->getUserMapping()->getType() . ': ' . $rule->getUserMapping()->getId();
 					}, $rulesForPath);
 					$permissions = array_map(function (Rule $rule) {
-						return $this->formatRulePermissions($rule->getMask(), $rule->getPermissions());
+						return Rule::formatRulePermissions($rule->getMask(), $rule->getPermissions());
 					}, $rulesForPath);
 					$formattedPath = substr($path, $jailPathLength);
 					return [
@@ -263,30 +255,5 @@ class ACL extends Base {
 				$table->render();
 				break;
 		}
-	}
-
-	private function formatRulePermissions(int $mask, int $permissions): string {
-		$result = [];
-		foreach (self::PERMISSIONS_MAP as $name => $value) {
-			if (($mask & $value) === $value) {
-				$type = ($permissions & $value) === $value ? '+' : '-';
-				$result[] = $type . $name;
-			}
-		}
-		return implode(', ', $result);
-	}
-
-	private function parsePermissions(array $permissions): array {
-		$mask = 0;
-		$result = 0;
-
-		foreach ($permissions as $permission) {
-			$permissionValue = self::PERMISSIONS_MAP[substr($permission, 1)];
-			$mask |= $permissionValue;
-			if ($permission[0] === '+') {
-				$result |= $permissionValue;
-			}
-		}
-		return [$mask, $result];
 	}
 }

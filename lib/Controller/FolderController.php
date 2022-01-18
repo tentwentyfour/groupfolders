@@ -21,6 +21,10 @@
 
 namespace OCA\GroupFolders\Controller;
 
+use OCA\GroupFolders\ACL\Rule;
+use OCA\GroupFolders\ACL\RuleManager;
+use OCA\GroupFolders\ACL\UserMapping\UserMapping;
+
 use OCA\GroupFolders\Folder\FolderManager;
 use OCA\GroupFolders\Mount\MountProvider;
 use OCP\AppFramework\Http\DataResponse;
@@ -29,6 +33,9 @@ use OCP\Files\IRootFolder;
 use OCP\IRequest;
 
 class FolderController extends OCSController {
+
+	/** @var RuleManager */
+	private $rulemanager;
 	/** @var FolderManager */
 	private $manager;
 	/** @var MountProvider */
@@ -42,12 +49,14 @@ class FolderController extends OCSController {
 		$AppName,
 		IRequest $request,
 		FolderManager $manager,
+		RuleManager $rulemanager,
 		MountProvider $mountProvider,
 		IRootFolder $rootFolder,
 		$userId
 	) {
 		parent::__construct($AppName, $request);
 		$this->manager = $manager;
+		$this->rulemanager = $rulemanager;
 		$this->mountProvider = $mountProvider;
 		$this->rootFolder = $rootFolder;
 		$this->userId = $userId;
@@ -158,23 +167,16 @@ class FolderController extends OCSController {
 	 * @param string $permission
 	 * @return DataResponse
 	 */
-	public function setACLPermissions($id, $mappingType, $mappingId, $path, $permission) {
-	// public function setACLPermissions($folderId, $type, $mappingId, $path, $permissions) {
-		error_log('BRUHsetACLPermissions');
-		// $this->manager->setACLPermissions($id, $mappingType, $mappingId, $path, $permission);
+	public function setACLPermissions($id, $mappingType, $mappingId, $path, $permissionStrings) {
+		error_log('FolderController::setACLPermissions');
 		error_log($id);
 		error_log($mappingType);
 		error_log($mappingId);
 		error_log($path);
-		error_log($permission);
+		error_log($permissionStrings);
 
-		// $folder = $this->getFolder($id, $this->rootFolder->getMountPoint()->getNumericStorageId());
-		$folder = $this->manager->getFolder((int)$id, $this->getRootFolderStorageId());
-
-		error_log('BRUH');
-		$permissions = $permission;
-
-		error_log(print_r($folder, TRUE));
+		$folder = $this->manager->getFolder((int) $id, $this->getRootFolderStorageId());
+		error_log('$folder ' . print_r($folder, true));
 		$mappingType = $mappingType === 'user' ? 'user' : 'group';
 
 		if ($folder) {
@@ -182,19 +184,18 @@ class FolderController extends OCSController {
 				// $output->writeln('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
 				error_log('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
 				// return -2;
-				return new DataResponse(false);
+				return new DataResponse(['success' => false]);
 			} else if (!$path) {
 				error_log('<error><path> argument has to be set when not using --enable or --disable</error>');
 				// return -3;
-				return new DataResponse(false);
-			} else if (!$permissions) {
+				return new DataResponse(['success' => false]);
+			} else if (!$permissionStrings) {
 				error_log('<error><permissions> argument has to be set when not using --enable or --disable</error>');
 				// return -3;
-				return new DataResponse(false);
+				return new DataResponse(['success' => false]);
 			} else {
 				$path = trim($path, '/');
 				error_log($path);
-				$permissionStrings = $permissions;
 
 				error_log(print_r($permissionStrings, TRUE));
 				error_log(print_r($folder['permissions'], TRUE));
@@ -209,14 +210,17 @@ class FolderController extends OCSController {
 					$folder['acl']
 				);
 
-				error_log(isset($mount));
+				error_log('isset $mount ' . isset($mount));
 				$id = $mount->getStorage()->getCache()->getId($path);
 				error_log($id);
 
 				if ($id === -1) {
-					$output->writeln('<error>Path not found in folder: ' . $path . '</error>');
+					// $output->writeln('<error>Path not found in folder: ' . $path . '</error>');
 					// return -1;
-					return new DataResponse(false);
+					return new DataResponse([
+						'success' => false,
+						'error' => 'Path not found in folder: ' . $path,
+					]);
 				}
 
 				if ($permissionStrings === ['clear']) {
@@ -231,20 +235,20 @@ class FolderController extends OCSController {
 
 					foreach ($permissionStrings as $permission) {
 						if ($permission[0] !== '+' && $permission[0] !== '-') {
-							$output->writeln('<error>incorrect format for permissions "' . $permission . '"</error>');
+							// $output->writeln('<error>incorrect format for permissions "' . $permission . '"</error>');
 							// return -3;
-							return new DataResponse(false);
+							return new DataResponse(['success' => false]);
 						}
 						$name = substr($permission, 1);
-						if (!isset(self::PERMISSIONS_MAP[$name])) {
-							$output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
+						if (!isset(Rule::PERMISSIONS_MAP[$name])) {
+							// $output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
 							// return -3;
-							return new DataResponse(false);
+							return new DataResponse(['success' => false]);
 						}
 					}
 					error_log('still here');
 
-					[$mask, $permissions] = $this->parsePermissions($permissionStrings);
+					[$mask, $permissions] = Rule::parsePermissions($permissionStrings);
 
 					$this->ruleManager->saveRule(new Rule(
 						new UserMapping($mappingType, $mappingId),
@@ -256,13 +260,13 @@ class FolderController extends OCSController {
 				}
 			}
 		} else {
-			$output->writeln('<error>Folder not found: ' . $id . '</error>');
-			return -1;
-			return new DataResponse(false);
+			// $output->writeln('<error>Folder not found: ' . $id . '</error>');
+			// return -1;
+			return new DataResponse(['success' => false]);
 		}
 		// return 0;
 
-		return new DataResponse(true);
+		return new DataResponse(['success' => true]);
 	}
 
 	/**
