@@ -21,10 +21,7 @@
 
 namespace OCA\GroupFolders\Controller;
 
-use OCA\GroupFolders\ACL\Rule;
-use OCA\GroupFolders\ACL\RuleManager;
-use OCA\GroupFolders\ACL\UserMapping\UserMapping;
-
+use OCA\GroupFolders\Exception\InvalidPermissionFormatException;
 use OCA\GroupFolders\Folder\FolderManager;
 use OCA\GroupFolders\Mount\MountProvider;
 use OCP\AppFramework\Http\DataResponse;
@@ -34,8 +31,6 @@ use OCP\IRequest;
 
 class FolderController extends OCSController {
 
-	// /** @var RuleManager */
-	private $ruleManager;
 	/** @var FolderManager */
 	private $manager;
 	/** @var MountProvider */
@@ -49,14 +44,12 @@ class FolderController extends OCSController {
 		$AppName,
 		IRequest $request,
 		FolderManager $manager,
-		RuleManager $ruleManager,
 		MountProvider $mountProvider,
 		IRootFolder $rootFolder,
 		$userId
 	) {
 		parent::__construct($AppName, $request);
 		$this->manager = $manager;
-		$this->ruleManager = $ruleManager;
 		$this->mountProvider = $mountProvider;
 		$this->rootFolder = $rootFolder;
 		$this->userId = $userId;
@@ -185,8 +178,23 @@ class FolderController extends OCSController {
 			]);
 		}
 
-		$folder = $this->manager->getFolder($id, $this->getRootFolderStorageId());
-		if (!$folder) {
+		try {
+			$this->manager->setFolderPermissions(
+				$id,
+				$this->getRootFolderStorageId(),
+				$path,
+				$mappingType,
+				$mappingId,
+				$permissions
+			);
+			return new DataResponse([
+				'success' => true,
+				'message' => sprintf(
+					'ACL applied successfully to folder %d',
+					$id
+				),
+			]);
+		} catch (NoSuchFolderException $e) {
 			return new DataResponse([
 				'success' => false,
 				'error' => sprintf(
@@ -195,9 +203,7 @@ class FolderController extends OCSController {
 				),
 				'code' => 404,
 			]);
-		}
-
-		if (!$folder['acl']) {
+		} catch (AdvancedPermissionsNotEnabledException $e) {
 			return new DataResponse([
 				'success' => false,
 				'error' => sprintf(
@@ -205,83 +211,20 @@ class FolderController extends OCSController {
 					$id
 				),
 			]);
-		}
-
-		$path = trim($path, '/');
-
-		// Note: getFolder returns neither permissions nor rootCacheEntry
-		// for folder entries!
-		$mount = $this->mountProvider->getMount(
-			$folder['id'],
-			$folder['mount_point'],
-			$folder['permissions'] ?? null,		// getFolder does not return this either
-			$folder['quota'],
-			$folder['rootCacheEntry'] ?? null,	// getFolder does not return this
-			null,
-			$folder['acl']
-			// getMount takes an IUser, but it's unclear whether this user is the acting
-			// user or the user for to whom we would like to give permissions
-			// I tend towards the latter.
-			// In which case we'll need to inject the IUserManager,
-			// see https://nextcloud-server.netlify.app/classes/ocp-iusermanager#method_get
-		);
-
-		$id = $mount->getStorage()->getCache()->getId($path);
-		if ($id === -1) {
+		} catch (PathNotFoundException $e) {
 			return new DataResponse([
 				'success' => false,
 				'error' => 'Path not found in folder: ' . $path,
 			]);
+		} catch (InvalidPermissionFormatException $e) {
+			return new DataResponse([
+				'success' => false,
+				'error' => sprintf(
+					'Incorrect format for permissions "%s"',
+					$permissions
+				),
+			]);
 		}
-
-		$mappingType = $mappingType === 'user' ? 'user' : 'group';
-		if ($permissions === ['clear']) {
-			$this->ruleManager->deleteRule(new Rule(
-				new UserMapping($mappingType, $mappingId),
-				$id,
-				0,
-				0
-			));
-		} else {
-			foreach ($permissions as $permission) {
-				if ($permission[0] !== '+' && $permission[0] !== '-') {
-					return new DataResponse([
-						'success' => false,
-						'error' => sprintf(
-							'Incorrect format for permissions "%s"',
-							$permission
-						),
-					]);
-				}
-				$name = substr($permission, 1);
-				if (!isset(Rule::PERMISSIONS_MAP[$name])) {
-					return new DataResponse([
-						'success' => false,
-						'error' => sprintf(
-							'Unknown/invalid permission "%s"',
-							$permission
-						),
-					]);
-				}
-			}
-
-			[$mask, $parsedPermissions] = Rule::parsePermissions($permissions);
-
-			$this->ruleManager->saveRule(new Rule(
-				new UserMapping($mappingType, $mappingId),
-				$id,
-				$mask,
-				$parsedPermissions
-			));
-		}
-
-		return new DataResponse([
-			'success' => true,
-			'message' => sprintf(
-				'ACL applied successfully to folder %d',
-				$id
-			),
-		]);
 	}
 
 	/**

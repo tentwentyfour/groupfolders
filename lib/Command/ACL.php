@@ -207,8 +207,6 @@ class ACL extends Base {
 		$jailPathLength = strlen($jailPath) + 1;
 		$outputFormat = $input->getOption('output');
 
-		error_log('printPermissions');
-
 		switch ($outputFormat) {
 			case parent::OUTPUT_FORMAT_JSON:
 			case parent::OUTPUT_FORMAT_JSON_PRETTY:

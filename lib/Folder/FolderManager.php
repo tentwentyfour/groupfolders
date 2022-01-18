@@ -22,7 +22,15 @@
 namespace OCA\GroupFolders\Folder;
 
 use OC\Files\Cache\Cache;
+
+use OCA\GroupFolders\Mount\MountProvider;
 use OCA\GroupFolders\Mount\GroupFolderStorage;
+use OCA\GroupFolders\ACL\Rule;
+use OCA\GroupFolders\ACL\RuleManager;
+use OCA\GroupFolders\ACL\UserMapping\UserMapping;
+use OCA\GroupFolders\Exception\AdvancedPermissionsNotEnabledException;
+use OCA\GroupFolders\Exception\NoSuchFolderException;
+use OCA\GroupFolders\Exception\PathNotFoundException;
 use OCP\Constants;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Files\IMimeTypeLoader;
@@ -40,7 +48,19 @@ class FolderManager {
 	/** @var IMimeTypeLoader */
 	private $mimeTypeLoader;
 
-	public function __construct(IDBConnection $connection, IGroupManager $groupManager = null, IMimeTypeLoader $mimeTypeLoader = null) {
+	/** @var RuleManager */
+	private $ruleManager;
+
+	/** @var MountProvider */
+	private $mountProvider;
+
+	public function __construct(
+		IDBConnection $connection,
+		IGroupManager $groupManager = null,
+		IMimeTypeLoader $mimeTypeLoader = null,
+		MountProvider $mountProvider,
+		RuleManager $ruleManager
+	) {
 		$this->connection = $connection;
 
 		// files_fulltextsearch compatibility
@@ -52,6 +72,8 @@ class FolderManager {
 		}
 		$this->groupManager = $groupManager;
 		$this->mimeTypeLoader = $mimeTypeLoader;
+		$this->ruleManager = $ruleManager;
+		$this->mountProvider = $mountProvider;
 	}
 
 	/**
@@ -197,7 +219,7 @@ class FolderManager {
 	 *
 	 * @psalm-return array{id: mixed, mount_point: mixed, groups: array<empty, empty>|mixed, quota: mixed, size: int|mixed, acl: bool}|false
 	 */
-	public function getFolder($id, $rootStorageId = 0) {
+	public function getFolder($id, $rootStorageId) {
 		$applicableMap = $this->getAllApplicable();
 
 		$query = $this->connection->getQueryBuilder();
@@ -496,6 +518,69 @@ class FolderManager {
 				->andWhere($query->expr()->eq('mapping_id', $query->createNamedParameter($id)));
 		}
 		$query->execute();
+	}
+
+	public function setFolderPermissions(
+		int $folderId,
+		int $rootFolderId,
+		string $path,
+		string $mappingType,
+		string $mappingId,
+		array $permissions
+	) {
+		$folder = $this->getFolder($folderId, $rootFolderId);
+		if (!$folder) {
+			throw new NoSuchFolderException();
+		}
+
+		if (!$folder['acl']) {
+			throw new AdvancedPermissionsNotEnabledException();
+		}
+
+		$path = trim($path, '/');
+		// Note: getFolder returns neither permissions nor rootCacheEntry
+		// for folder entries!
+		$mount = $this->mountProvider->getMount(
+			$folder['id'],
+			$folder['mount_point'],
+			$folder['permissions'] ?? null,		// getFolder does not return this either
+			$folder['quota'],
+			$folder['rootCacheEntry'] ?? null,	// getFolder does not return this
+			null,
+			$folder['acl']
+			// getMount takes an IUser, but it's unclear whether this user is the acting
+			// user or the user for to whom we would like to give permissions
+			// I tend towards the latter.
+			// In which case we'll need to inject the IUserManager,
+			// see https://nextcloud-server.netlify.app/classes/ocp-iusermanager#method_get
+		);
+
+		$id = $mount->getStorage()->getCache()->getId($path);
+		if ($id === -1) {
+			throw new PathNotFoundException();
+		}
+
+		$mappingType = $mappingType === 'user' ? 'user' : 'group';
+		if ($permissions === ['clear']) {
+			$this->ruleManager->deleteRule(new Rule(
+				new UserMapping($mappingType, $mappingId),
+				$id,
+				0,
+				0
+			));
+		} else {
+			Rule::validatePermissions($permissions);
+			[$mask, $parsedPermissions] = Rule::parsePermissions($permissions);
+
+			$this->ruleManager->saveRule(new Rule(
+				new UserMapping($mappingType, $mappingId),
+				$id,
+				$mask,
+				$parsedPermissions
+			));
+		}
+
+		return true;
 	}
 
 	public function removeFolder($folderId): void {

@@ -23,6 +23,8 @@ namespace OCA\GroupFolders\ACL;
 
 use OCA\GroupFolders\ACL\UserMapping\IUserMapping;
 use OCA\GroupFolders\ACL\UserMapping\UserMapping;
+use OCA\GroupFolders\Exception\InvalidPermissionFormatException;
+use OCA\GroupFolders\Exception\NoSuchPermissionException;
 use OCP\Constants;
 use Sabre\Xml\Reader;
 use Sabre\Xml\Writer;
@@ -111,6 +113,17 @@ class Rule implements XmlSerializable, XmlDeserializable, \JsonSerializable {
 			}
 		}
 		return [$mask, $result];
+	}
+
+	public static function validatePermissions(array $permissions): void {
+		foreach ($permissions as $permission) {
+			if ($permission[0] !== '+' && $permission[0] !== '-') {
+				throw new InvalidPermissionFormatException();
+			}
+			if (!isset(self::PERMISSIONS_MAP[substr($permission, 1)])) {
+				throw new NoSuchPermissionException();
+			}
+		}
 	}
 
 	public function xmlSerialize(Writer $writer) {
