@@ -34,8 +34,8 @@ use OCP\IRequest;
 
 class FolderController extends OCSController {
 
-	/** @var RuleManager */
-	private $rulemanager;
+	// /** @var RuleManager */
+	private $ruleManager;
 	/** @var FolderManager */
 	private $manager;
 	/** @var MountProvider */
@@ -49,14 +49,14 @@ class FolderController extends OCSController {
 		$AppName,
 		IRequest $request,
 		FolderManager $manager,
-		RuleManager $rulemanager,
+		RuleManager $ruleManager,
 		MountProvider $mountProvider,
 		IRootFolder $rootFolder,
 		$userId
 	) {
 		parent::__construct($AppName, $request);
 		$this->manager = $manager;
-		$this->rulemanager = $rulemanager;
+		$this->ruleManager = $ruleManager;
 		$this->mountProvider = $mountProvider;
 		$this->rootFolder = $rootFolder;
 		$this->userId = $userId;
@@ -87,8 +87,6 @@ class FolderController extends OCSController {
 	 * @return DataResponse
 	 */
 	public function addFolder($mountpoint) {
-		error_log('FolderController->addFolder');
-
 		$id = $this->manager->createFolder($mountpoint);
 		return new DataResponse(['id' => $id]);
 	}
@@ -160,6 +158,7 @@ class FolderController extends OCSController {
 	}
 
 	/**
+	 * @NoAdminRequired
 	 * @param int $id
 	 * @param string $mappingType
 	 * @param string $mappingId
@@ -167,106 +166,122 @@ class FolderController extends OCSController {
 	 * @param string $permission
 	 * @return DataResponse
 	 */
-	public function setACLPermissions($id, $mappingType, $mappingId, $path, $permissionStrings) {
-		error_log('FolderController::setACLPermissions');
-		error_log($id);
-		error_log($mappingType);
-		error_log($mappingId);
-		error_log($path);
-		error_log($permissionStrings);
+	public function setACLPermissions(
+		int $id,
+		string $mappingType,
+		string $mappingId,
+		string $path,
+		array $permissions
+	) {
+		if (!$this->manager->canManageACL($id, $this->userId) === true) {
+			return new DataResponse([
+				'success' => false,
+				'error' => sprintf(
+					'User "%d" is not allowed to manage folder "%d"',
+					$this->userId,
+					$id
+				),
+				'code' => 404,
+			]);
+		}
 
-		$folder = $this->manager->getFolder((int) $id, $this->getRootFolderStorageId());
-		error_log('$folder ' . print_r($folder, true));
+		$folder = $this->manager->getFolder($id, $this->getRootFolderStorageId());
+		if (!$folder) {
+			return new DataResponse([
+				'success' => false,
+				'error' => sprintf(
+					'Folder not found: %d',
+					$id
+				),
+				'code' => 404,
+			]);
+		}
+
+		if (!$folder['acl']) {
+			return new DataResponse([
+				'success' => false,
+				'error' => sprintf(
+					'Advanced permissions not enabled for folder: %d',
+					$id
+				),
+			]);
+		}
+
+		$path = trim($path, '/');
+
+		// Note: getFolder returns neither permissions nor rootCacheEntry
+		// for folder entries!
+		$mount = $this->mountProvider->getMount(
+			$folder['id'],
+			$folder['mount_point'],
+			$folder['permissions'] ?? null,		// getFolder does not return this either
+			$folder['quota'],
+			$folder['rootCacheEntry'] ?? null,	// getFolder does not return this
+			null,
+			$folder['acl']
+			// getMount takes an IUser, but it's unclear whether this user is the acting
+			// user or the user for to whom we would like to give permissions
+			// I tend towards the latter.
+			// In which case we'll need to inject the IUserManager,
+			// see https://nextcloud-server.netlify.app/classes/ocp-iusermanager#method_get
+		);
+
+		$id = $mount->getStorage()->getCache()->getId($path);
+		if ($id === -1) {
+			return new DataResponse([
+				'success' => false,
+				'error' => 'Path not found in folder: ' . $path,
+			]);
+		}
+
 		$mappingType = $mappingType === 'user' ? 'user' : 'group';
-
-		if ($folder) {
-			if (!$folder['acl']) {
-				// $output->writeln('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
-				error_log('<error>Advanced permissions not enabled for folder: ' . $id . '</error>');
-				// return -2;
-				return new DataResponse(['success' => false]);
-			} else if (!$path) {
-				error_log('<error><path> argument has to be set when not using --enable or --disable</error>');
-				// return -3;
-				return new DataResponse(['success' => false]);
-			} else if (!$permissionStrings) {
-				error_log('<error><permissions> argument has to be set when not using --enable or --disable</error>');
-				// return -3;
-				return new DataResponse(['success' => false]);
-			} else {
-				$path = trim($path, '/');
-				error_log($path);
-
-				error_log(print_r($permissionStrings, TRUE));
-				error_log(print_r($folder['permissions'], TRUE));
-
-				$mount = $this->mountProvider->getMount(
-					$folder['id'],
-					$folder['mount_point'],
-					$folder['permissions'],
-					$folder['quota'],
-					$folder['rootCacheEntry'],
-					null,
-					$folder['acl']
-				);
-
-				error_log('isset $mount ' . isset($mount));
-				$id = $mount->getStorage()->getCache()->getId($path);
-				error_log($id);
-
-				if ($id === -1) {
-					// $output->writeln('<error>Path not found in folder: ' . $path . '</error>');
-					// return -1;
+		if ($permissions === ['clear']) {
+			$this->ruleManager->deleteRule(new Rule(
+				new UserMapping($mappingType, $mappingId),
+				$id,
+				0,
+				0
+			));
+		} else {
+			foreach ($permissions as $permission) {
+				if ($permission[0] !== '+' && $permission[0] !== '-') {
 					return new DataResponse([
 						'success' => false,
-						'error' => 'Path not found in folder: ' . $path,
+						'error' => sprintf(
+							'Incorrect format for permissions "%s"',
+							$permission
+						),
 					]);
 				}
-
-				if ($permissionStrings === ['clear']) {
-					$this->ruleManager->deleteRule(new Rule(
-						new UserMapping($mappingType, $mappingId),
-						$id,
-						0,
-						0
-					));
-				} else {
-					error_log('here');
-
-					foreach ($permissionStrings as $permission) {
-						if ($permission[0] !== '+' && $permission[0] !== '-') {
-							// $output->writeln('<error>incorrect format for permissions "' . $permission . '"</error>');
-							// return -3;
-							return new DataResponse(['success' => false]);
-						}
-						$name = substr($permission, 1);
-						if (!isset(Rule::PERMISSIONS_MAP[$name])) {
-							// $output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
-							// return -3;
-							return new DataResponse(['success' => false]);
-						}
-					}
-					error_log('still here');
-
-					[$mask, $permissions] = Rule::parsePermissions($permissionStrings);
-
-					$this->ruleManager->saveRule(new Rule(
-						new UserMapping($mappingType, $mappingId),
-						$id,
-						$mask,
-						$permissions
-					));
-					error_log('but not here');
+				$name = substr($permission, 1);
+				if (!isset(Rule::PERMISSIONS_MAP[$name])) {
+					return new DataResponse([
+						'success' => false,
+						'error' => sprintf(
+							'Unknown/invalid permission "%s"',
+							$permission
+						),
+					]);
 				}
 			}
-		} else {
-			// $output->writeln('<error>Folder not found: ' . $id . '</error>');
-			// return -1;
-			return new DataResponse(['success' => false]);
-		}
-		// return 0;
 
-		return new DataResponse(['success' => true]);
+			[$mask, $parsedPermissions] = Rule::parsePermissions($permissions);
+
+			$this->ruleManager->saveRule(new Rule(
+				new UserMapping($mappingType, $mappingId),
+				$id,
+				$mask,
+				$parsedPermissions
+			));
+		}
+
+		return new DataResponse([
+			'success' => true,
+			'message' => sprintf(
+				'ACL applied successfully to folder %d',
+				$id
+			),
+		]);
 	}
 
 	/**

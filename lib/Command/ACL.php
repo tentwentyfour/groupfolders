@@ -83,8 +83,6 @@ class ACL extends Base {
 		$folderId = $input->getArgument('folder_id');
 		$folder = $this->folderManager->getFolder($folderId, $this->rootFolder->getMountPoint()->getNumericStorageId());
 
-		error_log('execute');
-
 		if ($folder) {
 			if ($input->getOption('enable')) {
 				$this->folderManager->setFolderACL($folderId, true);
@@ -146,9 +144,6 @@ class ACL extends Base {
 				$path = trim($path, '/');
 				$permissionStrings = $input->getArgument('permissions');
 
-				error_log(print_r($permissionStrings, TRUE));
-				error_log(print_r($folder['permissions'], TRUE));
-
 				$mount = $this->mountProvider->getMount(
 					$folder['id'],
 					// $folder['mount_point'],
@@ -160,14 +155,11 @@ class ACL extends Base {
 					$folder['acl']
 				);
 
-				error_log(strval(isset($mount)));
-
 				$id = $mount->getStorage()->getCache()->getId($path);
 				if ($id === -1) {
 					$output->writeln('<error>Path not found in folder: ' . $path . '</error>');
 					return -1;
 				}
-				error_log(strval($id));
 
 				if ($permissionStrings === ['clear']) {
 					$this->ruleManager->deleteRule(new Rule(

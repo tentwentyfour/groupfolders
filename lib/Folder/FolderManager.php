@@ -198,10 +198,6 @@ class FolderManager {
 	 * @psalm-return array{id: mixed, mount_point: mixed, groups: array<empty, empty>|mixed, quota: mixed, size: int|mixed, acl: bool}|false
 	 */
 	public function getFolder($id, $rootStorageId = 0) {
-		error_log('getFolder');
-		error_log($id);
-		error_log($rootStorageId);
-
 		$applicableMap = $this->getAllApplicable();
 
 		$query = $this->connection->getQueryBuilder();
@@ -500,97 +496,6 @@ class FolderManager {
 				->andWhere($query->expr()->eq('mapping_id', $query->createNamedParameter($id)));
 		}
 		$query->execute();
-	}
-
-	public function setACLPermissions($folderId, $type, $mappingId, $path, $permissions) {
-		$manageAcl = true;
-		error_log('manager setACLPermissions');
-		error_log($folderId);
-		error_log($type);
-		error_log($id);
-		error_log($path);
-		error_log($permissions);
-
-		// $folderId = $input->getArgument('folder_id');
-		// $folder = $this->getFolder($folderId, $this->rootFolder->getMountPoint()->getNumericStorageId());
-		$folder = $this->getFolder($folderId);
-
-		error_log('BRUH');
-
-		error_log(print_r($folder, TRUE));
-		$mappingType = $type === 'user' ? 'user' : 'group';
-
-		if ($folder) {
-			if (!$folder['acl']) {
-				// $output->writeln('<error>Advanced permissions not enabled for folder: ' . $folderId . '</error>');
-				error_log('<error>Advanced permissions not enabled for folder: ' . $folderId . '</error>');
-				return -2;
-			} else if (!$path) {
-				error_log('<error><path> argument has to be set when not using --enable or --disable</error>');
-				return -3;
-			} else if (!$permissions) {
-				error_log('<error><permissions> argument has to be set when not using --enable or --disable</error>');
-				return -3;
-			} else {
-				$path = trim($path, '/');
-				error_log($path);
-				$permissionStrings = $permissions;
-
-				error_log(print_r($permissionStrings, TRUE));
-				error_log(print_r($folder['permissions'], TRUE));
-
-				$mount = $this->mountProvider->getMount(
-					$folder['id'],
-					'/dummy/files/' . $folder['mount_point'],
-					$folder['permissions'],
-					$folder['quota'],
-					$folder['rootCacheEntry'],
-					null,
-					$folder['acl']
-				);
-
-				$id = $mount->getStorage()->getCache()->getId($path);
-
-				if ($id === -1) {
-					$output->writeln('<error>Path not found in folder: ' . $path . '</error>');
-					return -1;
-				}
-
-				if ($permissionStrings === ['clear']) {
-					$this->ruleManager->deleteRule(new Rule(
-						new UserMapping($mappingType, $mappingId),
-						$id,
-						0,
-						0
-					));
-				} else {
-					foreach ($permissionStrings as $permission) {
-						if ($permission[0] !== '+' && $permission[0] !== '-') {
-							$output->writeln('<error>incorrect format for permissions "' . $permission . '"</error>');
-							return -3;
-						}
-						$name = substr($permission, 1);
-						if (!isset(self::PERMISSIONS_MAP[$name])) {
-							$output->writeln('<error>incorrect format for permissions2 "' . $permission . '"</error>');
-							return -3;
-						}
-					}
-
-					[$mask, $permissions] = $this->parsePermissions($permissionStrings);
-
-					$this->ruleManager->saveRule(new Rule(
-						new UserMapping($mappingType, $mappingId),
-						$id,
-						$mask,
-						$permissions
-					));
-				}
-			}
-		} else {
-			$output->writeln('<error>Folder not found: ' . $folderId . '</error>');
-			return -1;
-		}
-		return 0;
 	}
 
 	public function removeFolder($folderId): void {
